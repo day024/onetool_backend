@@ -1,8 +1,13 @@
 package com.onetool.server.api.order.dto.request;
 
-import java.util.List;
+import jakarta.validation.constraints.NotEmpty;
+import lombok.Builder;
 
+import java.util.List;
+import java.util.Set;
+
+@Builder
 public record OrderRequest(
-        Long totalPrice,
-        List<OrderItem> orderList
+        @NotEmpty
+        Set<Long> blueprintIds
 ) {}

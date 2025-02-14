@@ -46,7 +46,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
                 Map<String, String> tokens = jwtUtil.createTokens(memberAuthContext);
                 MemberLoginResponse tokenResponse = MemberLoginResponse.builder()
                                 .accessToken("Bearer " + tokens.get("accessToken"))
-                                .refreshToken(tokens.get("refreshToken"))
                                 .build();
                 String result = objectMapper.writeValueAsString(tokenResponse);
 
@@ -63,6 +62,7 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
 
     private void loginSuccess(HttpServletResponse response, MemberAuthContext context) throws  IOException {
         MemberAuthContext memberAuthContext = MemberAuthContext.builder()
+                .id(context.getId())
                 .email(context.getEmail())
                 .role(context.getRole())
                 .build();
@@ -70,7 +70,6 @@ public class OAuth2LoginSuccessHandler implements AuthenticationSuccessHandler {
         Map<String, String> tokens = jwtUtil.createTokens(memberAuthContext);
         MemberLoginResponse tokenResponse = MemberLoginResponse.builder()
                 .accessToken("Bearer " + tokens.get("accessToken"))
-                .refreshToken(tokens.get("refreshToken"))
                 .build();
         String result = objectMapper.writeValueAsString(tokenResponse);
 

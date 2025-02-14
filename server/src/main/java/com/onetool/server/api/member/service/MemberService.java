@@ -3,23 +3,25 @@ package com.onetool.server.api.member.service;
 import com.onetool.server.api.blueprint.Blueprint;
 import com.onetool.server.api.member.dto.*;
 import com.onetool.server.api.qna.dto.response.QnaBoardResponse;
+import com.onetool.server.api.qna.repository.QnaBoardRepository;
 import com.onetool.server.global.auth.MemberAuthContext;
 import com.onetool.server.global.auth.jwt.JwtUtil;
-import com.onetool.server.global.exception.BaseException;
-import com.onetool.server.global.exception.BusinessLogicException;
-import com.onetool.server.global.exception.DuplicateMemberException;
-import com.onetool.server.global.exception.MemberNotFoundException;
+import com.onetool.server.global.exception.*;
 import com.onetool.server.global.exception.codes.ErrorCode;
 import com.onetool.server.global.redis.service.MailRedisService;
 import com.onetool.server.api.mail.MailService;
-import com.onetool.server.api.member.dto.*;
+
 import com.onetool.server.api.member.repository.MemberRepository;
 import com.onetool.server.api.member.domain.Member;
 import com.onetool.server.api.order.OrderBlueprint;
 import com.onetool.server.api.qna.QnaBoard;
+import com.onetool.server.global.redis.service.TokenBlackListRedisService;
+import com.onetool.server.global.redis.service.TokenRedisService;
+import jakarta.transaction.Transactional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -48,6 +50,12 @@ public class MemberService {
     private final MailService mailService;
     private final MailRedisService mailRedisService;
 
+    private final TokenRedisService tokenRedisService;
+
+    private final TokenBlackListRedisService tokenBlackListRedisService;
+
+    private final QnaBoardRepository qnaBoardRepository;
+
     @Value("${spring.mail.auth-code-expiration-millis}")
     private long authCodeExpirationMillis;
 
@@ -66,7 +74,7 @@ public class MemberService {
         String email = request.getEmail();
         String password = request.getPassword();
 
-        Member member = memberRepository.findByEmail(email).orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findByEmail(email).orElseThrow();
         log.info("============== 로그인 유저 정보 ===============");
         log.info(member.toString());
 
@@ -89,17 +97,16 @@ public class MemberService {
         String name = request.name();
         String phoneNum = request.phone_num();
 
-        Member member = memberRepository.findByNameAndPhoneNum(name, phoneNum)
-                .orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findByNameAndPhoneNum(name, phoneNum).orElseThrow();
 
         return member.getEmail();
     }
 
     public void sendCodeToEmail(String toEmail) {
         //this.checkDuplicatedEmail(toEmail);
-        String title = "[OneTool] 이메일 인증 번호";
+        String title = "[원툴] 회원가입 이메일 인증번호";
         String authCode = this.createCode();
-        mailService.sendEmail(toEmail, title, authCode);
+        mailService.sendEmail(toEmail, title, authCode, true);
         // 이메일 인증 요청 시 인증 번호 Redis에 저장 ( key = "AuthCode " + Email / value = AuthCode )
         mailRedisService.setValues(AUTH_CODE_PREFIX + toEmail,
                 authCode, Duration.ofMillis(this.authCodeExpirationMillis));
@@ -137,8 +144,7 @@ public class MemberService {
 
     public boolean findLostPwd(MemberFindPwdRequest request) {
         String email = request.getEmail();
-        Member member = memberRepository.findByEmail(email)
-                .orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findByEmail(email).orElseThrow();
 
         String newPwd = createRandomPassword();
         member.setPassword(encoder.encode(newPwd));
@@ -146,24 +152,26 @@ public class MemberService {
 
         mailService.sendEmail(
                 member.getEmail(),
-                "원툴 비밀번호 찾기",
-                newPwd
+                "[원툴] 임시 비밀번호 발급",
+                newPwd,
+                false
         );
         return true;
     }
 
+    @Transactional
     public Member updateMember(Long id, MemberUpdateRequest request) {
-        Member member = memberRepository.findById(id)
-                .orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findById(id).orElseThrow();
 
         member.updateWith(request);
 
         return memberRepository.save(member);
     }
 
+    @Transactional
     public void deleteMember(Long id) {
-        Member member = memberRepository.findById(id)
-                .orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findById(id).orElseThrow();
+
         memberRepository.delete(member);
     }
 
@@ -183,26 +191,25 @@ public class MemberService {
     }
 
     public MemberInfoResponse getMemberInfo(Long userId) {
-        Member member = memberRepository.findById(userId)
-                .orElseThrow(MemberNotFoundException::new);
+        Member member = memberRepository.findByIdAndIsDeleted(userId,false).orElseThrow();
 
         return MemberInfoResponse.from(member);
     }
 
     public List<QnaBoardResponse.QnaBoardBriefResponse> findQnaWrittenById(MemberAuthContext context){
-        Member member = findMemberWithQna(context.getId());
-        List<QnaBoard> qnaBoards = member.getQnaBoards();
+        if(!findMemberWithQna(context.getId())) {
+            throw new BaseException(ErrorCode.NON_EXIST_USER);
+        }
+        List<QnaBoard> qnaBoards = qnaBoardRepository.findByMemberId(context.getId());
         return QnaBoardResponse.QnaBoardBriefResponse.from(qnaBoards);
     }
 
-    private Member findMemberWithQna(Long id){
-        return memberRepository.findMemberWithQnaBoards(id)
-                .orElseThrow(() -> new BaseException(ErrorCode.NON_EXIST_USER));
+    private boolean findMemberWithQna(Long id){
+        return memberRepository.existsById(id);
     }
 
     public List<BlueprintDownloadResponse> getPurchasedBlueprints(final Long userId) {
-        final Member member = memberRepository.findById(userId)
-                .orElseThrow(MemberNotFoundException::new);
+        final Member member = memberRepository.findById(userId).orElseThrow();
 
         return member.getOrders().stream()
                 .flatMap(order -> order.getOrderItems().stream())
@@ -219,5 +226,16 @@ public class MemberService {
                 blueprint.getBlueprintName(),
                 blueprint.getCreatorName()
         );
+    }
+
+    public ApiResponse<String> logout(String accessToken, String email) {
+        Long expiration = jwtUtil.getExpirationMilliSec(accessToken);
+        tokenBlackListRedisService.setBlackList(accessToken, expiration);
+        if(tokenRedisService.hasKey(email)) {
+            tokenRedisService.deleteValues(email);
+        } else {
+            throw new IllegalLogoutMember(ErrorCode.ILLEGAL_LOGOUT_USER);
+        }
+        return ApiResponse.onSuccess("로그아웃이 완료되었습니다.");
     }
 }

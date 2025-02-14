@@ -9,6 +9,8 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnDefault;
+import org.hibernate.annotations.SQLDelete;
 
 import java.math.BigInteger;
 import java.time.LocalDateTime;
@@ -18,6 +20,7 @@ import java.util.List;
 @Entity
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@SQLDelete(sql = "UPDATE blueprint SET is_deleted = true WHERE id = ?")
 public class Blueprint extends BaseEntity {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
@@ -60,6 +63,7 @@ public class Blueprint extends BaseEntity {
     private String secondCategory;
 
     @Column(name = "inspection_status")
+    @ColumnDefault("'NONE'") // default
     @Enumerated(EnumType.STRING)
     private InspectionStatus inspectionStatus;
 
@@ -69,8 +73,33 @@ public class Blueprint extends BaseEntity {
     @OneToMany(mappedBy = "blueprint")
     private List<CartBlueprint> cartBlueprints = new ArrayList<>();
 
+    @Column(name = "is_deleted", nullable = false)
+    private boolean isDeleted = false;
+
+    @Column(name = "detail_image")
+    private String detailImage;
+
+
     @Builder
-    public Blueprint(Long id, String blueprintName, Long categoryId, Long standardPrice, String blueprintImg, String blueprintDetails, String extension, String program, BigInteger hits, Long salePrice, LocalDateTime saleExpiredDate, String creatorName, String downloadLink, String secondCategory, InspectionStatus inspectionStatus, List<OrderBlueprint> orderBlueprints, List<CartBlueprint> cartBlueprints) {
+    public Blueprint(Long id,
+                     String blueprintName,
+                     Long categoryId,
+                     Long standardPrice,
+                     String blueprintImg,
+                     String blueprintDetails,
+                     String extension,
+                     String program,
+                     BigInteger hits,
+                     Long salePrice,
+                     LocalDateTime saleExpiredDate,
+                     String creatorName,
+                     String downloadLink,
+                     String secondCategory,
+                     InspectionStatus inspectionStatus,
+                     List<OrderBlueprint> orderBlueprints,
+                     List<CartBlueprint> cartBlueprints,
+                     boolean isDeleted,
+                     String detailImage) {
         this.id = id;
         this.blueprintName = blueprintName;
         this.categoryId = categoryId;
@@ -88,12 +117,14 @@ public class Blueprint extends BaseEntity {
         this.inspectionStatus = inspectionStatus;
         this.orderBlueprints = orderBlueprints;
         this.cartBlueprints = cartBlueprints;
+        this.isDeleted = isDeleted;
+        this.detailImage = detailImage;
     }
 
     public void approveBlueprint() {
         this.inspectionStatus = InspectionStatus.PASSED;
     }
-  
+
     public static Blueprint fromRequest(final BlueprintRequest blueprintRequest) {
         return Blueprint.builder()
                 .id(blueprintRequest.id())
@@ -109,6 +140,12 @@ public class Blueprint extends BaseEntity {
                 .saleExpiredDate(blueprintRequest.saleExpiredDate())
                 .creatorName(blueprintRequest.creatorName())
                 .downloadLink(blueprintRequest.downloadLink())
+                .detailImage(blueprintRequest.detailImage())
                 .build();
     }
+
+    public boolean getIsDeleted() {
+        return isDeleted;
+    }
+
 }
